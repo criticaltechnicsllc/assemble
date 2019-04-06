@@ -1,0 +1,165 @@
+---
+# tasks file for base_ami
+
+# Yum update
+- name: upgrade all packages
+  yum:
+    name: '*'
+    state: latest
+
+#Yum install packages
+- name: Install packages
+  yum:
+    name: 
+      - gcc 
+      - inotify-tools 
+      - bind-utils 
+      - wget 
+      - zlib-devel
+    state: present    
+
+#Disable SELINUX
+- name: Disable SELINUX
+  lineinfile:
+    path: /etc/selinux/config
+    regexp: '^SELINUX='
+    line: 'SELINUX=disabled'
+
+# Create 4G Swap file
+- name: Write Swapfile
+  command: dd if=/dev/zero of=/swapfile bs=1M count=4048
+  
+- name: Set swapfile permissions
+  file: path=/swapfile mode=600
+
+- name: Create swapfile
+  command: mkswap /swapfile
+
+- name: Enable swapfile
+  command: swapon /swapfile 
+
+- name: add swapfile to /etc/fstab'
+  lineinfile: 
+    path: /etc/fstab
+    line: "/swapfile   none   swap   sw   0   0" 
+    state: present
+
+
+# Create Directory
+- file:
+    path: /opt/prometheus_node_exporter/
+    state: directory
+    mode: 0755
+ 
+#Download Node Exporter
+- name: Download Prometheus Node Exporter
+  get_url:
+    url: https://github.com/prometheus/node_exporter/releases/download/v0.17.0/node_exporter-0.17.0.linux-amd64.tar.gz
+    dest: /tmp/
+
+#Unarchive Node Exporter
+- name: Unarchive node exporter
+  unarchive:  
+    src: /tmp/node_exporter-0.17.0.linux-amd64.tar.gz
+    dest: /opt/prometheus_node_exporter/
+
+#Start Prometheus Node Exporter
+- name: Start Prometheus Node Exporter
+  shell: /opt/prometheus_node_exporter/node_exporter-0.17.0.linux-amd64/node_exporter & 
+
+#Create cronjob to start node exporter on boot
+- cron:
+    name: "a job for reboot"
+    special_time: reboot
+    job: "/opt/prometheus_node_exporter/node_exporter-0.17.0.linux-amd64/node_exporter"
+
+#Install Filebeats for log shipping
+- name: Install filebeats
+  yum:
+    name: https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-6.5.4-x86_64.rpm
+    state: present
+
+#Install Docker
+- name: install the latest version of Docker
+  yum:
+    name: docker
+    state: latest
+
+#Enable docker 
+- name: Enable service docker, and not touch the state
+  service:
+    name: docker
+    enabled: yes
+
+#Enable filebeat
+- name: Enable service filebeat, and not touch the state
+  service:
+    name: filebeat
+    enabled: yes
+
+- name: insert json config in filebeat.yml
+  blockinfile:
+    path: /etc/filebeat/filebeat.yml
+    insertafter: "#multiline.match: after"
+    block: |2
+      - type: log
+        paths:
+        - /var/ossec/logs/alerts/alerts.json
+        json.keys_under_root: true
+        fields: {log_type: osseclogs}
+
+#Install OSSEC
+- name: Download OSSEC
+  get_url: 
+    url: https://github.com/ossec/ossec-hids/archive/3.2.0.tar.gz
+    dest: /tmp/
+
+# Create Directories
+- file:
+    path: /opt/ossec/
+    state: directory
+    mode: 0755
+
+#Unarchive OSSEC
+- name: Unarchive OSSEC
+  unarchive:  
+    src: /tmp/ossec-hids-3.2.0.tar.gz
+    dest: /opt/ossec/
+
+#Copy unattended install configuration file
+- name: Copy file
+  copy:
+    src: /opt/ossec/ossec-hids-3.2.0/contrib/specs/local/preloaded-vars.conf
+    dest: /opt/ossec/ossec-hids-3.2.0/etc/preloaded-vars.conf
+
+#Install OSSEC
+- name: Install OSSEC
+  shell: /opt/ossec/ossec-hids-3.2.0/install.sh
+
+#Add json output to ossec config 
+- lineinfile:
+    path: /var/ossec/etc/ossec.conf 
+    regexp: '<global>'
+    insertafter: '^<global>'
+    line: '<global> <jsonout_output>yes</jsonout_output>'
+
+#Install IUS repo for python
+- name: Install ius repo
+  yum:
+    name: https://centos7.iuscommunity.org/ius-release.rpm
+    state: present
+
+#Yum install packages
+- name: Install packages
+  yum:
+    name: 
+      - python36u
+      - python36u-devel 
+      - python36u-pip
+    state: present
+
+#Install awscli with pip
+- name: Install AWSCLI
+  shell: python3.6 -m  pip install awscli --upgrade --user
+
+            
